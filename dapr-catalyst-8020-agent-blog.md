@@ -184,6 +184,50 @@ Six dependencies, all pip: `diagrid[langgraph]`, `langgraph`, `langchain-anthrop
 
 The Places `text` field is a `LocalizedText` object, hence the nested `.get('text')`. Reviews sit in the Enterprise + Atmosphere SKU, so use a tight field mask; and Google's terms prohibit storing review text, which the design already respects by persisting only the classification.
 
+## What the first run showed: how Catalyst executes a LangGraph graph
+
+Everything above was verified against source. This section is verified against a live run (August 16, 2026, Catalyst free tier, `diagrid` 0.4.3, `claude-sonnet-4-6`). The full logs are in the companion repo as `uvicornAppLog.md` and `clientLog.md`.
+
+The headline: five sample reviews in, five classified and routed out, `200 OK`, on the first request after configuration. `runner.invoke()` returns the final graph state, so the endpoint reads `classification` and `owner` straight from it. No retry code, no checkpoint code, no state store wiring in the application.
+
+The more interesting part is the server log, because it shows exactly how the runner maps a LangGraph graph onto Dapr's durable workflow model. For every review, the same five lines:
+
+```text
+[WORKFLOW] Step 0, pending_nodes=['classify']
+[ACTIVITY] Executing node 'classify' as Dapr activity
+[WORKFLOW] Step 1, pending_nodes=['route']
+[ACTIVITY] Executing node 'route' as Dapr activity
+[WORKFLOW] Step 2, pending_nodes=['__end__']
+```
+
+Read it as two layers. The `[WORKFLOW]` lines are the orchestrator: one Dapr workflow instance per review, and each LangGraph super-step becomes one orchestration step that decides which nodes are pending. The `[ACTIVITY]` lines are the work: each LangGraph node runs as a Dapr *activity*, which is the unit Catalyst checkpoints and signs. That is why the LLM call is safe to lose a process around: it lives inside the `classify` activity, and a completed activity's result is stored by Catalyst, not by your container.
+
+```mermaid
+%%{init: {'flowchart': {'htmlLabels': true, 'wrappingWidth': 700, 'padding': 10, 'nodeSpacing': 45, 'rankSpacing': 55}}}%%
+flowchart LR
+    subgraph LG ["LangGraph (what you wrote)"]
+        direction LR
+        S(("START")) --> C["classify<br/>node"] --> R["route<br/>node"] --> E(("END"))
+    end
+    subgraph DW ["Dapr Workflow on Catalyst (what actually runs, per review)"]
+        direction TB
+        O0["Orchestration step 0<br/>pending = [classify]"]
+        A1["Activity: classify<br/>LLM call<br/>result stored + signed"]
+        O1["Orchestration step 1<br/>pending = [route]"]
+        A2["Activity: route<br/>owner lookup<br/>result stored + signed"]
+        O2["Orchestration step 2<br/>pending = [__end__]<br/>final state returned"]
+        O0 --> A1 --> O1 --> A2 --> O2
+    end
+    C -. "becomes" .-> A1
+    R -. "becomes" .-> A2
+    X["Crash here?"] -. "replay: step 0 and classify<br/>return stored results,<br/>execution resumes at route" .-> O1
+    style X fill:#fff3cd,stroke:#c9a227
+```
+
+Recall hook: **super-step = orchestration step, node = activity.** If you remember that one line, you can predict where every checkpoint in your graph falls without reading the runner source.
+
+Two smaller observations from the same run. The Dapr SDK now prefers `DAPR_GRPC_ENDPOINT=grpc-<project>.cloud.r1.diagrid.io:443?tls=true` over the `https://` form (it warns otherwise); the runbook uses the new form. And because `invoke()` blocks until each workflow completes, five reviews meant five sequential round trips through Catalyst; that is the right default for a demo, and `run_async()` inside an `asyncio.gather` is the one-line change when you want fan-out.
+
 ## Deploy: the part the vendor docs skip
 
 Diagrid's quickstarts run locally and their production guidance targets Kubernetes. Outbound-only architecture means you do not need a cluster: serverless container platforms scale to zero when no reviews are flowing. And if your platform team mandates GKE (Google Kubernetes Engine), EKS (Elastic Kubernetes Service), or an on-prem cluster, nothing is lost: the app is a plain OCI (Open Container Initiative) image with environment-variable config, so it deploys to any of them unchanged. Serverless is the low-friction default here, not a requirement.

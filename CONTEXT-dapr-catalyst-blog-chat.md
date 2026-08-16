@@ -42,7 +42,7 @@ Every reference, claim, CLI flag, API path, and SDK call was verified against pr
 
 ## Open action items (pre-publish)
 
-1. Get a Catalyst free-tier project and a Google Maps Platform API key (Places API (New) enabled); run the demo once end to end and confirm `runner.invoke()` return shape matches what the endpoint returns to the caller.
+1. ~~Run the demo once end to end and confirm `runner.invoke()` return shape~~ Done Aug 16 (see "First live run"). Remaining: crash test + console screenshot; optional Google Places key for a real place.
 2. Confirm with Diagrid whether a Catalyst subscription includes a commercial license for the BSL 1.1 `diagrid` SDK; this decides whether an enterprise can use it in production at all.
 3. ~~Create `main.py`, `requirements.txt`, `Dockerfile`~~ Done Aug 16, 2026 (plus `sample_reviews.json`, `.env.example`, `.dockerignore`, `README.md`, `FRICTIONS.md`). Repo linked from the post. Still to do: run it once against a real Catalyst project.
 4. Optional: add one-line callback to the Feedback Intelligence series in the intro.
@@ -60,4 +60,14 @@ Diagrid "Agentic Durable Execution" blog (July 27, 2026); Business Wire Catalyst
 
 ## Tone pass (August 16, 2026)
 
-All published-facing files (blog, FRICTIONS.md, README) were reframed from "frictions and drawbacks" to "enterprise adoption playbook: what Catalyst removes, how to line up the rest." Every fact was kept accurate and sourced; only framing changed (e.g. BSL license described as a clean, precedented model with a 2030 Apache conversion; single region framed as ideal for POC with dedicated/Private Link for production; fast release cadence framed as strength). Accuracy and constructive framing with roadmap awareness. VERIFICATION-REPORT is an internal audit and stays factual; 
+Mahesh is pursuing a role at Diagrid. All published-facing files (blog, FRICTIONS.md, README) were reframed from "frictions and drawbacks" to "enterprise adoption playbook: what Catalyst removes, how to line up the rest." Every fact was kept accurate and sourced; only framing changed (e.g. BSL license described as a clean, precedented model with a 2030 Apache conversion; single region framed as ideal for POC with dedicated/Private Link for production; fast release cadence framed as strength). Rationale: Diagrid engineers will read this, so accuracy is what earns credibility, and constructive framing shows product understanding plus roadmap awareness. VERIFICATION-REPORT is an internal audit and stays factual; consider keeping it out of the public repo or leaving it as evidence of rigor.
+
+## Working agreement (from August 16, 2026)
+
+- **Mahesh commits and pushes; Claude never runs `git commit` or `git push`.** Claude writes files into the repo folder and reports what changed; Mahesh reviews and commits.
+- Anything named `*private*` stays local (`.gitignore` rule); Claude keeps private notes in `CONTEXT-private.md`-style files only when asked, and never references their contents in public files.
+- Public-facing files (blog, FRICTIONS.md, README, RUNBOOK) keep the constructive "adoption playbook" tone; facts stay accurate and sourced.
+
+## First live run (August 16, 2026)
+
+Ran end to end on the Catalyst free tier from Mahesh's Mac (Python 3.11.5, `diagrid` 0.4.3, `claude-sonnet-4-6`). Two setup snags, both fixed and documented in RUNBOOK troubleshooting: gRPC URL pasted into `DAPR_HTTP_ENDPOINT` (health-check loop), and macOS python.org SSL roots (`CERTIFICATE_VERIFY_FAILED`). Result: 5/5 sample reviews classified and routed, `200 OK`; `runner.invoke()` confirmed to return final graph state. Server log confirmed the mapping super-step -> orchestration step, node -> activity; documented in the blog's new "What the first run showed" section with a Mermaid diagram. Logs kept in repo as `uvicornAppLog.md` and `clientLog.md`. Open item #1 (run once end to end) is done; crash test (RUNBOOK step 7) and Catalyst console screenshot still to do.

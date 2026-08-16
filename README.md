@@ -19,12 +19,16 @@ Use `place_id` = `sample` to run on the bundled `sample_reviews.json` with no Go
 | `requirements.txt` | Pinned, verified installable together (Aug 16, 2026) |
 | `Dockerfile` | `python:3.12-slim`, uvicorn on port 8080 |
 | `.env.example` | Every environment variable the app reads |
+| `RUNBOOK.md` | Step-by-step local run guide with prerequisites (Python 3.11+) and troubleshooting |
 | `dapr-catalyst-8020-agent-blog.md` | The blog post |
 | `FRICTIONS.md` | Plain-language enterprise adoption playbook: what Catalyst takes off your plate, and how to answer the rest |
 | `VERIFICATION-REPORT-2026-08-16.md` | Fact-check of every claim in the post, with sources |
 | `CONTEXT-dapr-catalyst-blog-chat.md` | Decision log and open to-dos |
+| `uvicornAppLog.md`, `clientLog.md` | Verified first-run logs (server and client) from August 16, 2026 |
 
 ## Run it
+
+Full step-by-step with troubleshooting: [RUNBOOK.md](RUNBOOK.md). Requires **Python 3.11 to 3.13**.
 
 1. Create a free Catalyst project at https://catalyst.diagrid.io and copy the three connection values (`DAPR_GRPC_ENDPOINT`, `DAPR_HTTP_ENDPOINT`, `DAPR_API_TOKEN`) from the console or `diagrid` CLI.
 2. `cp .env.example .env` and fill it in. `GOOGLE_MAPS_API_KEY` is optional if you only use `sample`.
