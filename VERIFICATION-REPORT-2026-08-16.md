@@ -10,7 +10,7 @@ Date: August 16, 2026. Method: every claim, reference, CLI flag, API path, and S
 | `diagrid` SDK and LangGraph code | 9 | 3 hard errors, 2 soft | Import path, `arun`, missing `name=` would fail on first run |
 | Yelp / Google Places | 7 | 2 material | Yelp no free tier; 24-hour storage cap. Demo switched to Places |
 | gcloud / az / Cloud Run / model ID | 7 | 1 hard, 2 outdated | `az containerapp up` secrets; VPC connector superseded; ACA internal ingress + scheduler |
-| Enterprise adoption friction (new) | 12 areas | n/a | Added 4 new rows to the frictions table |
+| Enterprise adoption considerations (new) | 12 areas | n/a | Added rows to the adoption playbook |
 
 ## 1. Catalyst 2.0 launch and press claims
 
@@ -69,9 +69,9 @@ Date: August 16, 2026. Method: every claim, reference, CLI flag, API path, and S
 | Cloud Run: VPC-SC, CMEK, internal ingress, IAM, GPUs | VERIFIED (all five) | Added: Cloud Run internal ingress explicitly admits Cloud Scheduler | https://docs.cloud.google.com/run/docs/securing/ingress |
 | Serverless VPC connector | SUPERSEDED — Direct VPC egress is the recommended default | Reworded; connector kept as Cloud NAT option | https://docs.cloud.google.com/run/docs/configuring/connecting-vpc |
 
-## 5. Enterprise adoption friction (added to the post)
+## 5. Enterprise adoption considerations (added to the post)
 
-New rows in "Remaining frictions" based on this pass:
+New rows in the adoption playbook based on this pass:
 
 | Finding | Verdict | Source |
 |---|---|---|

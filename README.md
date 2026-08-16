@@ -2,7 +2,7 @@
 
 A less-friction demo to catalyze your agents: a durable review-triage agent built with **LangGraph** and run on **Diagrid Catalyst 2.0**, packaged as one container that only makes outbound HTTPS calls.
 
-Companion to the blog post [The Minimum-Approval Enterprise Agent](dapr-catalyst-8020-agent-blog.md). Read [FRICTIONS.md](FRICTIONS.md) before pitching this inside a large company.
+Companion to the blog post [The Minimum-Approval Enterprise Agent](dapr-catalyst-8020-agent-blog.md). Read [FRICTIONS.md](FRICTIONS.md) for the enterprise adoption playbook: what Catalyst removes, and how to line up the rest.
 
 ## What it does
 
@@ -20,7 +20,7 @@ Use `place_id` = `sample` to run on the bundled `sample_reviews.json` with no Go
 | `Dockerfile` | `python:3.12-slim`, uvicorn on port 8080 |
 | `.env.example` | Every environment variable the app reads |
 | `dapr-catalyst-8020-agent-blog.md` | The blog post |
-| `FRICTIONS.md` | Plain-language list of what will slow you down in an enterprise |
+| `FRICTIONS.md` | Plain-language enterprise adoption playbook: what Catalyst takes off your plate, and how to answer the rest |
 | `VERIFICATION-REPORT-2026-08-16.md` | Fact-check of every claim in the post, with sources |
 | `CONTEXT-dapr-catalyst-blog-chat.md` | Decision log and open to-dos |
 
@@ -43,13 +43,13 @@ Use `place_id` = `sample` to run on the bundled `sample_reviews.json` with no Go
    ```
 5. Cloud Run / Azure Container Apps: commands are in the blog post's "Deploy" section.
 
-## Things you will notice
+## Good to know
 
-- **The runner needs `DAPR_HTTP_ENDPOINT` as well as the gRPC endpoint.** On construction it calls the Dapr metadata API over HTTP to auto-discover components named `agent-memory`, `agent-pubsub`, `agent-registry` (all optional). Without a reachable HTTP endpoint the constructor blocks for `DAPR_HEALTH_TIMEOUT` seconds (default 60) retrying a health check. That is why `main.py` builds the runner in the FastAPI lifespan, not at import.
-- **`runner.invoke()` is synchronous** and blocks until the durable workflow completes. `runner.run_async()` is an async generator that yields progress events if you want streaming.
-- **"Six dependencies" is the direct list.** `pip freeze` after installing `requirements.txt` shows ~144 packages; `diagrid[langgraph]` pulls in `dapr-agents`, which pulls in the OpenAI, Anthropic, and Hugging Face client libraries whether you use them or not. Budget for that in your SBOM / vulnerability scan.
-- **Python must be 3.11, 3.12, or 3.13.** `diagrid` declares `<3.14`.
-- **License.** The `diagrid` package is Business Source License 1.1, not Apache-2.0. See FRICTIONS.md.
+- **Set both `DAPR_HTTP_ENDPOINT` and `DAPR_GRPC_ENDPOINT`.** The runner uses HTTP on construction to auto-discover optional Catalyst components (`agent-memory`, `agent-pubsub`, `agent-registry`) and gRPC for the workflow stream. `main.py` builds the runner in the FastAPI lifespan so startup logs show connectivity clearly.
+- **`runner.invoke()` is synchronous** and returns when the durable workflow completes. `runner.run_async()` is an async generator that yields progress events when you want streaming.
+- **You get the whole agent toolkit.** `diagrid[langgraph]` brings the broader `dapr-agents` stack (about 144 packages, including the major LLM clients), so the other framework wrappers are already installed when you want them; run your SBOM scan once during the POC.
+- **Python 3.11 to 3.13** is supported.
+- **License.** The `diagrid` package is Business Source License 1.1 (converts to Apache-2.0 in 2030); see FRICTIONS.md for how to fold that into the vendor conversation.
 
 ## License
 
