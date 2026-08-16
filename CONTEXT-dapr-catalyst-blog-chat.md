@@ -57,3 +57,7 @@ Diagrid "Agentic Durable Execution" blog (July 27, 2026); Business Wire Catalyst
 - The in-chat time tool was unreliable this session (returned stale/wrong Central Time twice, then errored). Timestamps were dropped mid-session rather than printing wrong ones.
 - An SVG sequence diagram was rendered in-chat for the ticket version; the authoritative, current sequence diagram is the Mermaid block in the blog file (review version).
 - Google Drive connector frustration noted; nothing was saved to Drive. Both deliverables live in chat file cards: `dapr-catalyst-8020-agent-blog.md` and this context file.
+
+## Tone pass (August 16, 2026)
+
+All published-facing files (blog, FRICTIONS.md, README) were reframed from "frictions and drawbacks" to "enterprise adoption playbook: what Catalyst removes, how to line up the rest." Every fact was kept accurate and sourced; only framing changed (e.g. BSL license described as a clean, precedented model with a 2030 Apache conversion; single region framed as ideal for POC with dedicated/Private Link for production; fast release cadence framed as strength). Accuracy and constructive framing with roadmap awareness. VERIFICATION-REPORT is an internal audit and stays factual; 
