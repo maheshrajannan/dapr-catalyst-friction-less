@@ -29,12 +29,24 @@ Title/intro (minimum-approval thesis, points readers to Diagrid docs for the bui
 - `diagrid` package API surface is weeks old: verify `DaprWorkflowGraphRunner` import path and invocation method against docs.diagrid.io/develop/agents/langgraph before publishing; pin versions.
 - Catalyst performance claims (10x) are vendor-stated. Pricing is per concurrent workflow, no per-step metering (per Diagrid blog).
 
+## Fact-check pass (August 16, 2026)
+
+Every reference, claim, CLI flag, API path, and SDK call was verified against primary sources; see `VERIFICATION-REPORT-2026-08-16.md` for the itemized findings. Material changes applied to the blog:
+
+- **Demo input switched from Yelp Fusion to Google Places API (New).** Yelp has no free tier anymore (30-day trial, then $229/mo Base which returns zero review text; $299/mo Enhanced for excerpts) and caps storage of Yelp content at 24 hours. Places returns up to 5 reviews on a billed GCP project with per-SKU free allowances. Decision: Places primary; Yelp mentioned in caveats only.
+- **SDK code fixed to match `diagrid` 0.4.3 source:** import is `from diagrid.agent.langgraph import DaprWorkflowGraphRunner` (not `diagrid.workflow`); constructor requires `name=`; there is no `arun`, use sync `invoke()` or async-generator `run_async()`; wrap with `runner.start()`/`shutdown()`. Also `START` edge, `msg.text`, Places `LocalizedText` shape.
+- **Azure deploy split into three commands** (`az containerapp up` has no `--secrets`); ingress switched to external with note that internal ingress is not reachable by an internet-side scheduler. **Cloud Run:** added `--location` to scheduler command, replaced serverless VPC connector with Direct VPC egress.
+- **Frictions table expanded** with findings that matter at Fortune-100 scale: `diagrid` SDK is BSL 1.1 (not open source; commercial license needed in production), SOC 2 Type II only, single public data-plane region (aws-us-west-1), private link Azure-only and one week old, self-hosted needs a K8s cluster + Postgres, static app tokens/no SCIM, Series A vendor with 3-contributor SDK repo.
+- Naming/precision: "LangGraph Deep Agents" -> "LangChain Deep Agents"; 10x claim qualified as vs open-source Dapr; connectivity is HTTP and gRPC; added `DAPR_HTTP_ENDPOINT`; Dapr 1.18 date (June 10, 2026); Spring AI added to framework list; references now carry full titles, authors, and URLs.
+- `claude-sonnet-4-6` verified as a valid current model ID (Anthropic moved to dateless IDs from 4.6); left as-is, `claude-sonnet-5` is newest.
+
 ## Open action items (pre-publish)
 
-1. Get a free Yelp Fusion API key and a Catalyst free-tier project; run the demo once end to end.
-2. Validate/fix the `DaprWorkflowGraphRunner` import and invocation against Diagrid's LangGraph tutorial; pin all versions in requirements.
-3. Optional: publish companion repo; add one-line callback to the Feedback Intelligence series in the intro.
-4. When narrating durability in the post, reference the sequence-diagram step numbers to make crash recovery concrete.
+1. Get a Catalyst free-tier project and a Google Maps Platform API key (Places API (New) enabled); run the demo once end to end and confirm `runner.invoke()` return shape matches what the endpoint returns to the caller.
+2. Confirm with Diagrid whether a Catalyst subscription includes a commercial license for the BSL 1.1 `diagrid` SDK; this decides whether an enterprise can use it in production at all.
+3. ~~Create `main.py`, `requirements.txt`, `Dockerfile`~~ Done Aug 16, 2026 (plus `sample_reviews.json`, `.env.example`, `.dockerignore`, `README.md`, `FRICTIONS.md`). Repo linked from the post. Still to do: run it once against a real Catalyst project.
+4. Optional: add one-line callback to the Feedback Intelligence series in the intro.
+5. Re-check `docs.diagrid.io/develop/agents/langgraph/langgraph-durable-workflow/` prose (JS-rendered, could not be fetched during verification) for any invocation pattern that differs from the repo examples.
 
 ## Sources used (for citation integrity)
 
