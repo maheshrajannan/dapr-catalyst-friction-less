@@ -226,6 +226,61 @@ flowchart LR
 
 Recall hook: **super-step = orchestration step, node = activity.** If you remember that one line, you can predict where every checkpoint in your graph falls without reading the runner source.
 
+The Catalyst console closes the loop. Under Monitor → Workflows the graph appears as `dapr.langgraph.ReviewTriage.workflow` (the runner derives the workflow name from `name="review-triage"`), attributed to the app, with a total-executions counter and a status bar. After two triage calls: 10 executions, status bar fully green, zero failures, on the free tier from a laptop. Every one of those ten rows has a signed step history you can open, which is the audit answer from earlier in this post made concrete.
+
+![Catalyst console: dapr.langgraph.ReviewTriage.workflow, 10 executions, all succeeded](docs/catalyst-workflows-console.png)
+
+### The crash test, verified
+
+Durable execution is a claim until you kill the process. So: `CRASH_TEST_DELAY=10` makes the `route` step sleep, a triage is fired, and the process is hard-killed (`kill -9`, not Ctrl-C, which would let the request finish gracefully) while `route` is running:
+
+```text
+[WORKFLOW] Step 0, pending_nodes=['classify']
+[ACTIVITY] Executing node 'classify' as Dapr activity      <- LLM call, completes, result stored + signed
+[WORKFLOW] Step 1, pending_nodes=['route']
+[ACTIVITY] Executing node 'route' as Dapr activity
+[CRASH-TEST] route sleeping 10s: kill -9 the process now
+Killed: 9
+```
+
+Restart with no delay, and without any new request from anyone:
+
+```text
+INFO:     Application startup complete.
+[ACTIVITY] Executing node 'route' as Dapr activity      <- Catalyst redelivers the one activity that was in flight
+[WORKFLOW] Step 2, pending_nodes=['__end__']            <- workflow completes
+```
+
+Read what is not there. No `classify` activity: the LLM result was already stored, so it was never re-run and never re-billed. No `Step 0` / `Step 1` replay in the log either: the worker reconnected, Catalyst handed it the single orphaned `route` work item, and the orchestrator finished from history. The HTTP caller (the `curl`) got a dropped connection, because it was attached to the process that died; the work was not, because it was attached to Catalyst.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant APP1 as Agent process #1
+    participant CAT as Catalyst workflow engine
+    participant LLM as LLM
+    participant APP2 as Agent process #2 (restart)
+    APP1->>CAT: start workflow (review s1)
+    CAT->>APP1: run activity: classify
+    APP1->>LLM: classify prompt
+    LLM-->>APP1: classification
+    APP1-->>CAT: classify result (stored, signed)
+    CAT->>APP1: run activity: route
+    Note over APP1: kill -9 while route is running
+    APP2->>CAT: worker reconnects (outbound gRPC)
+    CAT->>APP2: redeliver activity: route (classify NOT redelivered)
+    APP2-->>CAT: route result (stored, signed)
+    CAT-->>APP2: workflow complete
+```
+
+That is the whole pitch of durable execution in nine lines of log, and it cost one LLM call, not two.
+
+The console tells the same story with timestamps. The crashed instance (`graph-sample:s1-11ea7c91`, derived from the `thread_id` the app passed) shows status COMPLETED, start 11:35:51, end 11:37:21, execution time 1.51 minutes, against a few seconds for every sibling instance. Those ninety-odd seconds are the crash: the `route` activity sat scheduled in Catalyst while process #1 was dead and until process #2 reconnected. The event history is six lines: `ExecutionStarted` 11:35:51; `execute_node_activity` (classify) scheduled 11:35:51 and completed 11:35:53, 2.27 seconds, the LLM call; `execute_node_activity` (route) scheduled 11:35:54 and completed 11:37:21, 1.46 minutes, which is the crash plus the restart; `ExecutionCompleted` 11:37:21. One classify. One route, whose duration is the outage. No failure recorded.
+
+![Catalyst instance detail: COMPLETED, 1.51m execution time spanning the crash, single classify activity](docs/catalyst-crash-instance.png)
+
+The console also taught a lesson worth passing on. The instance's Output panel shows the full graph state, including the review text, because the app passes the review text into the workflow. That is harmless with the bundled sample data, and it is exactly the case the "pass references, not payloads" advice in the adoption playbook is about: with real Google Places reviews, that text would rest in Catalyst's workflow history. The fix is small: pass `place_id` and `review_id` into the workflow and fetch the text inside the classify activity, using it locally and never returning it into graph state. The companion repo does this by default (`PASS_REVIEW_BY=reference`); after the change, the instance's Output panel shows `place_id`, `review_id`, the classification, and the owner, and no review text (verified on instance `graph-sample:s5-ca2e2248`). One nuance worth knowing when you read the console: the Input panel's `graph_config` lists `review` among the state channels, because the state schema declares the field; that is a column name, not a value, and in reference mode it is never populated. `PASS_REVIEW_BY=text` restores the state-carrying variant for demos with sample data. Same graph, same durability, one design decision about what crosses the boundary.
+
 Two smaller observations from the same run. The Dapr SDK now prefers `DAPR_GRPC_ENDPOINT=grpc-<project>.cloud.r1.diagrid.io:443?tls=true` over the `https://` form (it warns otherwise); the runbook uses the new form. And because `invoke()` blocks until each workflow completes, five reviews meant five sequential round trips through Catalyst; that is the right default for a demo, and `run_async()` inside an `asyncio.gather` is the one-line change when you want fan-out.
 
 ## Deploy: the part the vendor docs skip

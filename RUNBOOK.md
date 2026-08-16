@@ -68,7 +68,7 @@ Terminal 2:
 curl -s -X POST localhost:8080/triage/sample | python3 -m json.tool
 ```
 
-Expected: JSON with `count: 5` and, for each review, a `classification` (sentiment, theme, urgency, summary) and an `owner` email. A verified first-run example is in `clientLog.md`; the matching server log is `uvicornAppLog.md`.
+Expected: JSON with `mode: "reference"`, `count: 5` and, for each review, a `classification` (sentiment, theme, urgency, summary) and an `owner` email. A verified first-run example is in `clientLog.md`; the matching server log is `uvicornAppLog.md`.
 
 In Terminal 1 you will see, per review, the runner mapping the graph onto Dapr:
 
@@ -84,16 +84,80 @@ In Terminal 1 you will see, per review, the runner mapping the graph onto Dapr:
 
 ## 6. See it in Catalyst
 
-Open the Catalyst console → Monitor → Workflows. You should see five `review-triage` workflow instances, each with two completed activities (classify, route) and a signed step history. Worth a screenshot for the blog.
+Open the Catalyst console → Monitor → Workflows. The graph is listed as **`dapr.langgraph.ReviewTriage.workflow`** (the runner derives this from `name="review-triage"`), attributed to your app, with a **Total executions** count (5 per triage call) and a status bar that should be fully green. Click the row or "All workflow executions" to open individual instances; each shows the two activities (classify, route) and the signed step history. Verified August 16, 2026: 10 executions after two calls, all succeeded (screenshot: `docs/catalyst-workflows-console.png`).
 
 ## 7. The crash test
 
-This is the point of the demo.
+This is the point of the demo, so it is worth doing properly. Two things matter:
 
-1. In Terminal 2, start a triage: `curl -s -X POST localhost:8080/triage/sample &`
-2. Immediately press Ctrl-C in Terminal 1 to kill the app mid-run.
-3. Restart it: `uvicorn main:app --port 8080`
-4. In the Catalyst console, the interrupted workflow shows as resumed rather than restarted; the LLM step that already completed is not re-run and not re-billed.
+- **Ctrl-C is not a crash.** It asks uvicorn to shut down gracefully: in-flight requests finish, then `runner.shutdown()` drains the worker. The current review completes and Catalyst never sees a failure. (You may also see a `KeyboardInterrupt` / `CancelledError` traceback after `Finished server process`; that is uvicorn shutdown noise, not an error in the app.) Use `kill -9`, which is what a real crash, OOM-kill, or node eviction looks like.
+- **The window is tiny by default.** Classify takes a few seconds (LLM call); route takes milliseconds. `CRASH_TEST_DELAY` makes route sleep so you can hit the gap between the two checkpoints.
+
+Steps:
+
+```bash
+# Terminal 1: start with a 20-second window in the route step
+source .venv/bin/activate
+set -a; source .env; set +a
+CRASH_TEST_DELAY=20 uvicorn main:app --port 8080
+
+# Terminal 2: fire one triage (it will not return; that is expected)
+curl -s -X POST localhost:8080/triage/sample &
+
+# Terminal 1 shows: [ACTIVITY] Executing node 'classify' ... then
+#                   [CRASH-TEST] route sleeping 20s: kill -9 the process now
+# Terminal 2: kill it hard within those 20 seconds
+kill -9 $(pgrep -f "uvicorn main:app")
+
+# Terminal 1: restart WITHOUT the delay
+uvicorn main:app --port 8080
+```
+
+What you will see after the restart, in Terminal 1, with no new request from anyone (verified August 16, 2026):
+
+```text
+INFO:     Application startup complete.
+  [ACTIVITY] Executing node 'route' as Dapr activity   <- Catalyst redelivers only the in-flight activity
+  [WORKFLOW] Step 2, pending_nodes=['__end__']         <- workflow completes
+```
+
+Two lines. No `classify` activity (its result was already stored; no second LLM call, no second charge) and no visible replay of steps 0 and 1 (the orchestrator finishes from history). In the Catalyst console the same instance shows as completed with both activities, not as a new instance. The full before/after log is in `crashTestLog.md`.
+
+What to capture in the Catalyst console (two screenshots):
+
+1. **Workflows list** (Monitor → Workflows): `dapr.langgraph.ReviewTriage.workflow` now shows one more execution than before the test (11 if you had 10) and the status bar is still fully green. Point: the crashed run counted as a completion, not a failure plus a retry. Save as `docs/catalyst-crash-resume.png`.
+2. **The instance detail** (click the row → All workflow executions → the newest instance, e.g. `graph-sample:s1-<suffix>`): Status COMPLETED; **Execution time** of a minute or more (siblings take seconds), which is the crash gap; and in Event history one `execute_node_activity` scheduled/completed for classify, then route scheduled, a gap, route completed, execution completed. Scroll the history so the whole sequence is in frame. This is the strongest single piece of evidence in the whole demo. Save as `docs/catalyst-crash-instance.png`. Verified August 16, 2026: instance `graph-sample:s1-11ea7c91`, 11:35:51 to 11:37:21, 1.51m, COMPLETED.
+
+Also open the instance's **Output** panel. In the default `PASS_REVIEW_BY=reference` mode, `output` and `channel_state.values` contain only `place_id`, `review_id`, the classification, and the owner: no review text enters Catalyst's workflow history, because the classify activity fetches the text itself and uses it locally. (The **Input** panel's `graph_config.channels_read` will still list `review` by name; that is the declared state schema, not a value.) Verified August 16, 2026 on instance `graph-sample:s5-ca2e2248`; save as `docs/catalyst-reference-mode.png`. Set `PASS_REVIEW_BY=text` to see the full state including review text in the console instead; useful for demos with the bundled sample data, and exactly what you would not do with real third-party reviews.
+
+What just happened, as a sequence:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant T2 as Terminal 2 (curl)
+    participant P1 as uvicorn #1 (CRASH_TEST_DELAY=10)
+    participant CAT as Catalyst workflow engine
+    participant LLM as LLM
+    participant P2 as uvicorn #2 (restart, no delay)
+    T2->>P1: POST /triage/sample
+    P1->>CAT: start workflow (review s1)
+    CAT->>P1: run activity: classify
+    P1->>LLM: classify prompt
+    LLM-->>P1: classification JSON
+    P1-->>CAT: classify result stored + signed
+    CAT->>P1: run activity: route
+    Note over P1: route sleeps 10s
+    T2-->>P1: kill -9
+    Note over P1,T2: process gone; curl gets a dropped connection
+    P2->>CAT: worker reconnects (outbound gRPC, same app)
+    CAT->>P2: redeliver activity: route (classify NOT redelivered)
+    P2-->>CAT: route result stored + signed
+    CAT-->>P2: workflow complete (Step 2, __end__)
+    Note over CAT: console: same instance, both activities done, no failure
+```
+
+Note the `curl` in Terminal 2 will report a dropped connection; the HTTP caller was collateral of the crash, but the work was not. The completed classification lives in Catalyst either way, which is the durability argument in one sentence.
 
 ## 8. Real Google reviews (optional)
 

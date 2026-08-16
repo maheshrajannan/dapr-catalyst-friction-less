@@ -42,7 +42,7 @@ Every reference, claim, CLI flag, API path, and SDK call was verified against pr
 
 ## Open action items (pre-publish)
 
-1. ~~Run the demo once end to end and confirm `runner.invoke()` return shape~~ Done Aug 16 (see "First live run"). Remaining: crash test + console screenshot; optional Google Places key for a real place.
+1. ~~Run the demo once end to end and confirm `runner.invoke()` return shape~~ Done Aug 16 (see "First live run"). Crash test done. Remaining: save `crashTestLog.md` and the two console screenshots; optional Google Places key for a real place.
 2. Confirm with Diagrid whether a Catalyst subscription includes a commercial license for the BSL 1.1 `diagrid` SDK; this decides whether an enterprise can use it in production at all.
 3. ~~Create `main.py`, `requirements.txt`, `Dockerfile`~~ Done Aug 16, 2026 (plus `sample_reviews.json`, `.env.example`, `.dockerignore`, `README.md`, `FRICTIONS.md`). Repo linked from the post. Still to do: run it once against a real Catalyst project.
 4. Optional: add one-line callback to the Feedback Intelligence series in the intro.
@@ -70,4 +70,17 @@ Mahesh is pursuing a role at Diagrid. All published-facing files (blog, FRICTION
 
 ## First live run (August 16, 2026)
 
-Ran end to end on the Catalyst free tier from Mahesh's Mac (Python 3.11.5, `diagrid` 0.4.3, `claude-sonnet-4-6`). Two setup snags, both fixed and documented in RUNBOOK troubleshooting: gRPC URL pasted into `DAPR_HTTP_ENDPOINT` (health-check loop), and macOS python.org SSL roots (`CERTIFICATE_VERIFY_FAILED`). Result: 5/5 sample reviews classified and routed, `200 OK`; `runner.invoke()` confirmed to return final graph state. Server log confirmed the mapping super-step -> orchestration step, node -> activity; documented in the blog's new "What the first run showed" section with a Mermaid diagram. Logs kept in repo as `uvicornAppLog.md` and `clientLog.md`. Open item #1 (run once end to end) is done; crash test (RUNBOOK step 7) and Catalyst console screenshot still to do.
+Ran end to end on the Catalyst free tier from Mahesh's Mac (Python 3.11.5, `diagrid` 0.4.3, `claude-sonnet-4-6`). Two setup snags, both fixed and documented in RUNBOOK troubleshooting: gRPC URL pasted into `DAPR_HTTP_ENDPOINT` (health-check loop), and macOS python.org SSL roots (`CERTIFICATE_VERIFY_FAILED`). Result: 5/5 sample reviews classified and routed, `200 OK`; `runner.invoke()` confirmed to return final graph state. Server log confirmed the mapping super-step -> orchestration step, node -> activity; documented in the blog's new "What the first run showed" section with a Mermaid diagram. Logs kept in repo as `uvicornAppLog.md` and `clientLog.md`. Open item #1 (run once end to end) is done. Console verified: `dapr.langgraph.ReviewTriage.workflow`, 10 executions after two calls, all green; screenshot to be saved by Mahesh at `docs/catalyst-workflows-console.png` (referenced from blog and RUNBOOK). Crash test done Aug 16: `CRASH_TEST_DELAY=10`, `kill -9` during route; on restart Catalyst redelivered only the `route` activity and completed the workflow (2 log lines, no classify re-run, no visible step-0/1 replay). Documented in blog ("The crash test, verified" with sequence diagram) and RUNBOOK step 7. Mahesh to save terminal output as `crashTestLog.md` and console view as `docs/catalyst-crash-resume.png`.
+
+## Console evidence + design lesson (August 16, 2026, 11:44 CT)
+
+Crashed instance detail captured: `graph-sample:s1-11ea7c91`, COMPLETED, 11:35:51 to 11:37:21, execution time 1.51m (crash gap), one classify activity, route resumed. Documented in blog crash-test subsection and RUNBOOK step 7 capture list. Screenshot to save as `docs/catalyst-crash-instance.png`.
+
+Lesson from the Output panel: workflow state carried the review text, so Catalyst history stored it. **Done Aug 16:** `main.py` refactored; `PASS_REVIEW_BY=reference` (default) sends only `{place_id, review_id}` into the workflow and classify fetches text inside the activity; `PASS_REVIEW_BY=text` keeps the old behavior. Console timeline for the crashed instance confirmed: classify 2.27s (11:35:51-53), route 1.46m (11:35:54-11:37:21, the outage), ExecutionCompleted 11:37:21. Blog, RUNBOOK, README, .env.example updated. Re-run live in reference mode Aug 16 12:02 CT: instance `graph-sample:s5-ca2e2248` Output shows only place_id/review_id/classification/owner, no review text. Input `graph_config.channels_read` lists `review` as a schema name only (documented as such). Screenshot to save as `docs/catalyst-reference-mode.png`.
+
+## TODO (post-verification editorial pass, agreed Aug 16)
+
+1. **Tightening pass on the blog (cuts only, no new claims).** Currently ~5,400 words / 14 H2 sections; target ~3,500. Candidates: runner-internals paragraph in the code section (move to RUNBOOK/README), "Scope and caveats" items that duplicate the playbook, the planned "Request flow" sequence diagram now that the crash-test sequence diagram shows the same flow with real data. Keep: thesis, security review, code, "What the first run showed" incl. crash test, playbook.
+2. Add a short up-front "what you will see" paragraph near the top with the crash-test numbers (2.27s classify, 1.46m route = outage, COMPLETED), so skimmers meet the proof early.
+3. Closing paragraph in Mahesh's own voice (who he is, invitation to compare notes). Mahesh writes this.
+4. Save `crashTestLog.md`, `docs/catalyst-workflows-console.png`, `docs/catalyst-crash-resume.png`, `docs/catalyst-crash-instance.png`, `docs/catalyst-reference-mode.png`.
