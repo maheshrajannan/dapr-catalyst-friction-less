@@ -20,7 +20,8 @@ Use `place_id` = `sample` to run on the bundled `sample_reviews.json` with no Go
 | `Dockerfile` | `python:3.12-slim`, uvicorn on port 8080 |
 | `.env.example` | Every environment variable the app reads |
 | `RUNBOOK.md` | Step-by-step local run guide with prerequisites (Python 3.11+) and troubleshooting |
-| `dapr-catalyst-8020-agent-blog.md` | The blog post |
+| `dapr-catalyst-8020-agent-blog.md` | The blog post (long version, ~5,000 words) |
+| `dapr-catalyst-8020-agent-blog-tight.md` | The blog post, tightened for publication (~3,400 words body); same facts, same code, same diagrams |
 | `FRICTIONS.md` | Plain-language enterprise adoption playbook: what Catalyst takes off your plate, and how to answer the rest |
 | `VERIFICATION-REPORT-2026-08-16.md` | Fact-check of every claim in the post, with sources |
 | `CONTEXT-dapr-catalyst-blog-chat.md` | Decision log and open to-dos |
