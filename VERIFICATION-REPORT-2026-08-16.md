@@ -81,7 +81,7 @@ New rows in the adoption playbook based on this pass:
 | Self-hosted requires dedicated Kubernetes 1.24+, external Postgres (`wal_level=logical`), Helm agent with cluster-scoped RBAC, outbound to six `*.r1.diagrid.io` endpoints not TLS-inspected; air-gapped install docs not public. | CONFIRMED | https://docs.diagrid.io/operate/hosting/enterprise-self-hosted/production-planning/ |
 | App auth = static `DAPR_API_TOKEN` bearer per app; no documented rotation/OIDC federation for external apps; console SSO federation API July–Aug 2026; no SCIM. | CONFIRMED | https://docs.diagrid.io/operate/platform-operations/identity-and-access/ |
 | Workflow history stores every step's inputs/outputs; visible in console; encryption-at-rest / CMK not documented. | CONFIRMED / UNVERIFIABLE | https://docs.diagrid.io/concepts/workflows/ |
-| Vendor: founded 2021, Series A $24.2M (2022), no later round found; SDK repo 6 stars, 3 contributors, first PyPI release March 2026. | CONFIRMED | https://www.cbinsights.com/company/diagrid ; https://github.com/diagridio/python-ai |
+| Vendor: founded 2021, Series A $24.2M (2022), no later round found. | CONFIRMED | https://www.cbinsights.com/company/diagrid |
 | Outbound-only holds for workflows and publish (app-initiated gRPC stream); subscribe/bindings/invocation require inbound from Catalyst egress IP. | CONFIRMED | https://docs.diagrid.io/develop/connect/ |
 | gRPC honors HTTPS_PROXY/NO_PROXY; Dapr Python SDK sets no keepalive (open issue #813); Diagrid has no proxy guidance. | CONFIRMED | https://github.com/dapr/python-sdk/issues/813 |
 | Free tier: 3 projects, 10 apps, 3 users, 512 MB/store, 100 req/s/app, 100k req/day/project, no SLA. | CONFIRMED | https://docs.diagrid.io/operate/plans-and-support/ |

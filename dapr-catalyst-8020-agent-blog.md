@@ -1,10 +1,12 @@
 # The Minimum-Approval Enterprise Agent: A Durable Review-Triage Agent on Dapr Catalyst 2.0
 
-> An architect's guide to shipping an AI agent with one container, outbound-only networking, and zero infrastructure tickets. Demo runs on public Google Places review data so any reader with a GCP project can execute it end to end; production swaps in your first-party feedback source without touching the agent. Sources verified August 16, 2026 against Diagrid docs, the `diagridio/python-ai` source, and vendor documentation; Catalyst 2.0 shipped July 28, 2026.
+> An architect's guide to shipping an AI agent with one container, outbound-only networking, and zero infrastructure tickets. Runs on public Google Places review data; production swaps in your first-party feedback source without touching the agent. Every claim below is verified against source or against a live run on August 16, 2026 (Catalyst free tier, `diagrid` 0.4.3). Companion repo with runnable code, runbook, logs, and the long-form adoption notes: https://github.com/maheshrajannan/dapr-catalyst-friction-less
+
+**What you will see by the end.** A LangGraph agent, unchanged except for one wrapper line, running as Catalyst durable workflows. Then a `kill -9` while a step is executing, a restart, and Catalyst redelivering exactly one activity: the classify step (2.27 seconds, one LLM call) was never re-run, the route step's recorded duration was 1.46 minutes (the outage), and the instance finished COMPLETED with no failure recorded. Screenshots and logs are in the repo.
 
 ## The real blocker is not code
 
-Diagrid's quickstarts already teach you to build a durable agent in 15 minutes, including a crash-test demo where the process dies mid-run and resumes exactly where it stopped. Go read their docs for the build.
+Diagrid's quickstarts already teach you to build a durable agent in 15 minutes, including a crash test. Go read their docs for the build.
 
 This post covers what their docs do not: getting an agent **approved and running inside a locked-down enterprise**, and giving readers a demo they can actually run. In a Fortune 500 environment, agent code is the easy part. Every dependency is a firewall request, a security review, and a three-week infrastructure ticket. Redis for state? Ticket. Kafka for events? Ticket plus capacity review. A Kubernetes cluster with a Dapr (Distributed Application Runtime) control plane? A platform-team engagement measured in quarters. Most enterprise agent projects die in that queue.
 
@@ -12,21 +14,13 @@ This post covers what their docs do not: getting an agent **approved and running
 
 The 20% of agent architecture that gets 80% of the value is a constraint: **every dependency must be an outbound HTTPS call to an allowlisted domain.** No inbound rules. No new stateful infrastructure inside the perimeter. No cluster.
 
-Dapr Catalyst is the managed, serverless version of the Dapr APIs: state, pub/sub, service invocation, bindings, and durable workflows delivered as a cloud service your app reaches over outbound HTTPS or gRPC (port 443) with an API token, no sidecar. Catalyst 2.0 adds durable execution (a crashed agent resumes from the exact failed step) and verifiable execution (cryptographically signed step history, a chain of custody for compliance; the signing shipped upstream in open-source Dapr 1.18 on June 10, 2026). It is offered as multi-tenant cloud, dedicated, self-hosted, and fully air-gapped.
+Dapr Catalyst is the managed, serverless version of the Dapr APIs: state, pub/sub, service invocation, bindings, and durable workflows delivered as a cloud service your app reaches over outbound HTTPS or gRPC (port 443) with an API token, no sidecar. Catalyst 2.0 adds durable execution (a crashed agent resumes from the exact failed step) and verifiable execution (cryptographically signed step history; the signing shipped upstream in open-source Dapr 1.18 on June 10, 2026). It is offered as multi-tenant cloud, dedicated, self-hosted, and fully air-gapped.
 
 ## The use case: durable review triage
 
-Customer feedback is the one queue every enterprise has and every reader can reach. Public Google reviews are the demo-friendly version of it: no internal ticketing tool, no VPN, no access request. The demo uses the Google Places API (New), which returns up to five reviews per place and runs on any billed GCP project with a monthly free call allowance; if you are deploying to Cloud Run you already have one. (Yelp Fusion was the original plan; it is now a paid product, so Places is the reader-friendly choice. See the caveats section.) The agent:
+Customer feedback is the one queue every enterprise has and every reader can reach. Public Google reviews are the demo-friendly version: no internal ticketing tool, no VPN, no access request. The agent fetches the latest reviews for a place (Google Places API (New), up to five per place, any billed GCP project), classifies each with an LLM (sentiment, theme, urgency), routes it to an owning team, persists the classification, and publishes a `review.triaged` event. Each review runs as a Catalyst durable workflow.
 
-1. Fetches the latest reviews for a place over the public API.
-2. Classifies each review with an LLM: sentiment, theme, urgency.
-3. Routes it with one tool call (theme to owning team).
-4. Persists the classification to a state store.
-5. Publishes a `review.triaged` event for downstream systems.
-
-Each review runs as a Catalyst durable workflow. A container killed after classification but before publishing resumes at the routing step on restart: no re-billed tokens, no duplicate events, no custom retry code.
-
-**Swap the input, keep the agent.** In production, replace the Places fetch with your first-party feedback source: CRM exports, app-store reviews, NPS (Net Promoter Score) comments, dealer surveys. The durable agent, the checkpoints, and the firewall story are unchanged. That is the pattern worth internalizing: the demo proves the architecture on public data, production only re-points the input.
+**Swap the input, keep the agent.** In production, replace the Places fetch with your first-party feedback source: CRM exports, app-store reviews, NPS comments, dealer surveys. The durable agent, the checkpoints, and the firewall story are unchanged. The demo proves the architecture on public data; production only re-points the input.
 
 ## Architecture
 
@@ -55,39 +49,6 @@ flowchart TB
 
 Recall hook: **A-C-L = "Agent Calls out, Latches on"**. One agent container, Catalyst for durability and messaging, public APIs for input and inference. Every arrow crosses the firewall in one direction: outbound.
 
-## Request flow: review to end state
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant SCHED as Scheduler
-    participant APP as Triage agent
-    participant REV as Review API
-    participant WF as Catalyst workflow
-    participant LLM as LLM endpoint
-    participant CAT as Catalyst state + pubsub
-    SCHED->>APP: POST /triage/place-id
-    APP->>REV: fetch latest reviews
-    REV-->>APP: review excerpts
-    loop each review
-        APP->>WF: start durable workflow
-        WF->>APP: run step 1, classify
-        APP->>LLM: sentiment, theme, urgency prompt
-        LLM-->>APP: classification JSON
-        APP-->>WF: checkpoint step 1, signed
-        Note over APP,WF: crash here? resumes at step 2 on restart, no repeated LLM spend
-        WF->>APP: run step 2, route
-        APP->>APP: route_owner tool
-        APP-->>WF: checkpoint step 2, signed
-        WF->>CAT: save classification, publish review.triaged
-    end
-    APP-->>SCHED: 200 with triage summary
-```
-
-End state, three artifacts per review: the classification persisted in the state store, a `review.triaged` event delivered to subscribers, and a signed execution history for audit. The note between steps 8 and 9 is the durability pitch in one line: a crash after the LLM call (step 7) costs nothing, because the workflow engine, not your container, owns the progress; on restart the engine replays step 8's stored result and resumes at step 9.
-
-One protocol detail that matters for the firewall story: Dapr workflows are app-initiated. The worker in your container opens a single outbound gRPC stream to Catalyst and pulls work over it, so steps 5, 8, and 9 do not require any inbound port. Publishing (step 12) is also outbound. The moment you *subscribe* to pub/sub, add input bindings, or use service invocation, Catalyst must be able to reach your app and you must allowlist its egress address; that is why this design publishes but never subscribes.
-
 ## The one-sentence security review
 
 When InfoSec asks what the application needs, the complete answer is:
@@ -100,15 +61,15 @@ When InfoSec asks what the application needs, the complete answer is:
 | `places.googleapis.com` | 443 outbound | Public review data (demo input) |
 | Your LLM endpoint (e.g. `api.anthropic.com`) | 443 outbound | Model inference |
 
-Three rows. Compare that to the allowlist, capacity plan, and patching story for self-hosted Redis, Kafka, and a Kubernetes control plane. Data-residency question from compliance? Catalyst's dedicated, self-hosted, or air-gapped modes are the escalation path: same application code, different hosting answer (see the adoption playbook below). If your enterprise routes egress through a proxy, gRPC honors the standard `HTTPS_PROXY` / `NO_PROXY` variables via HTTP CONNECT, so it is a deployment flag, not an architecture change; test the long-lived workflow stream against your proxy's idle timeout in week one, and set gRPC keepalives if your proxy is aggressive (see dapr/python-sdk#813 for the option).
+Three rows. Compare that to the allowlist, capacity plan, and patching story for self-hosted Redis, Kafka, and a Kubernetes control plane. One protocol detail makes the outbound-only claim hold: Dapr workflows are app-initiated. The worker in your container opens a single outbound gRPC stream to Catalyst and pulls work over it, and publishing is outbound too. The moment you *subscribe* to pub/sub, add input bindings, or use service invocation, Catalyst must reach your app; that is why this design publishes but never subscribes. Corporate proxy? gRPC honors `HTTPS_PROXY` / `NO_PROXY`; test the long-lived stream against your proxy's idle timeout in week one. Data-residency question? Dedicated, self-hosted, or air-gapped modes are the escalation path: same application code, different hosting answer (see the playbook below).
 
-## The code (minimal on purpose, and in the framework you already use)
+## The code (minimal on purpose, in the framework you already use)
 
-Framework choice matters more for adoption than for architecture. LangGraph is what most enterprise teams have already standardized on, so that is what the demo uses. Catalyst's whole 2.0 design supports this: you do not adopt a new framework, you add the `diagrid` package underneath the one you have. Compile your graph as usual, hand it to Diagrid's workflow runner, and the graph's LLM and tool calls become durable workflow activities. Prefer Dapr Agents, CrewAI, Google ADK, or Microsoft Agent Framework? Same architecture, different one-line wrapper; see Diagrid's per-framework docs.
+LangGraph is what most enterprise teams have standardized on, so that is what the demo uses. Catalyst 2.0's design supports this: you do not adopt a new framework, you add the `diagrid` package underneath the one you have, compile your graph as usual, and hand it to Diagrid's runner; the graph's LLM and tool calls become durable workflow activities. Prefer CrewAI, Google ADK, or Microsoft Agent Framework? Same architecture, different one-line wrapper.
 
-Worth addressing head-on: LangGraph has its own persistence. Its checkpointers save state at super-step boundaries and let you restart a graph from the last successful step. Two gaps remain, and they are exactly the enterprise-shaped ones. First, checkpoints save state but do not detect failures or recover automatically; that logic is still yours to build and operate. Second, a durable checkpointer means either a database you run (Postgres; SQLite is fine for a laptop, not for a fleet), a managed store such as Cosmos DB, or LangGraph Platform's hosted persistence, which is one more SaaS vendor through procurement. Catalyst supplies automatic detection and resume, the signed execution history, and the managed state and pub/sub, all over the same outbound 443.
+LangGraph has its own persistence, so it is worth being precise about the gap. Checkpointers save state at super-step boundaries and let you restart from the last successful step, but they do not detect failures or recover automatically, and a durable checkpointer means a database you run, a managed store, or LangGraph Platform, one more vendor through procurement. Catalyst supplies automatic detection and resume, the signed history, and managed state and pub/sub, over the same outbound 443.
 
-The skeleton, verified against `diagrid` 0.4.3 (August 4, 2026) and the `diagridio/python-ai` LangGraph examples (the full runnable version, with a bundled sample-review fallback so it runs with no Google key, is in the companion repo: https://github.com/maheshrajannan/dapr-catalyst-friction-less):
+The skeleton (the full runnable version with a bundled sample-review fallback, pinned requirements, Dockerfile, and runbook is in the companion repo):
 
 ```python
 # main.py - durable review-triage agent (LangGraph on Catalyst)
@@ -180,17 +141,15 @@ async def triage(place_id: str):
     return {"place": place_id, "count": len(triaged), "results": triaged}
 ```
 
-Six dependencies, all pip: `diagrid[langgraph]`, `langgraph`, `langchain-anthropic`, `fastapi`, `uvicorn`, `httpx`. Catalyst connection is pure environment config, identical everywhere: `DAPR_GRPC_ENDPOINT`, `DAPR_HTTP_ENDPOINT`, `DAPR_API_TOKEN` (all three come from the Catalyst console or the `diagrid` CLI), plus `GOOGLE_MAPS_API_KEY` and your LLM key. Dockerfile: `python:3.12-slim`, pip install, uvicorn on port 8080. Pin versions: the `diagrid` package first shipped in March 2026 and is on 0.4.x with a fast release cadence, so lock what you tested. Three things worth knowing about the runner, all confirmed by installing 0.4.3 and reading the source: `name=` is required (the constructor raises without it); there is no `arun`, the choices are the blocking `invoke()` shown here or the async-generator `run_async()`; and the constructor calls Catalyst's metadata API over `DAPR_HTTP_ENDPOINT` to discover optional components, blocking for `DAPR_HEALTH_TIMEOUT` seconds (default 60) if that endpoint is unreachable, which is why the runner is built inside the FastAPI lifespan rather than at import. One more practical note: "six dependencies" is the direct list; `diagrid[langgraph]` brings the broader `dapr-agents` toolkit with it (about 144 packages in a fresh install, including the major LLM clients), so your SBOM scan will see the full agent stack, and you get the other framework wrappers ready to use.
+Six direct dependencies, all pip. Catalyst connection is three environment variables (`DAPR_GRPC_ENDPOINT`, `DAPR_HTTP_ENDPOINT`, `DAPR_API_TOKEN`), identical on a laptop, Cloud Run, or a cluster. Everything you need to run it, including the handful of things the runner wants that are easy to miss (`name=` is required; both endpoints are needed; `invoke()` is synchronous), is in the repo's RUNBOOK with a troubleshooting table built from a real first run.
 
-The Places `text` field is a `LocalizedText` object, hence the nested `.get('text')`. Reviews sit in the Enterprise + Atmosphere SKU, so use a tight field mask; and Google's terms prohibit storing review text, which the design already respects by persisting only the classification.
+## Verified: what actually happened when I ran it
 
-## What the first run showed: how Catalyst executes a LangGraph graph
+Everything above is verified against source. This section is verified against a live run (August 16, 2026, Catalyst free tier, `diagrid` 0.4.3, `claude-sonnet-4-6`); logs are in the repo.
 
-Everything above was verified against source. This section is verified against a live run (August 16, 2026, Catalyst free tier, `diagrid` 0.4.3, `claude-sonnet-4-6`). The full logs are in the companion repo as `uvicornAppLog.md` and `clientLog.md`.
+### How Catalyst executes a LangGraph graph
 
-The headline: five sample reviews in, five classified and routed out, `200 OK`, on the first request after configuration. `runner.invoke()` returns the final graph state, so the endpoint reads `classification` and `owner` straight from it. No retry code, no checkpoint code, no state store wiring in the application.
-
-The more interesting part is the server log, because it shows exactly how the runner maps a LangGraph graph onto Dapr's durable workflow model. For every review, the same five lines:
+Five sample reviews in, five classified and routed out, `200 OK`, on the first request after configuration. `runner.invoke()` returns the final graph state; no retry code, no checkpoint code, no state-store wiring in the application. The server log shows exactly how the runner maps a graph onto Dapr's workflow model. For every review, the same five lines:
 
 ```text
 [WORKFLOW] Step 0, pending_nodes=['classify']
@@ -200,7 +159,7 @@ The more interesting part is the server log, because it shows exactly how the ru
 [WORKFLOW] Step 2, pending_nodes=['__end__']
 ```
 
-Read it as two layers. The `[WORKFLOW]` lines are the orchestrator: one Dapr workflow instance per review, and each LangGraph super-step becomes one orchestration step that decides which nodes are pending. The `[ACTIVITY]` lines are the work: each LangGraph node runs as a Dapr *activity*, which is the unit Catalyst checkpoints and signs. That is why the LLM call is safe to lose a process around: it lives inside the `classify` activity, and a completed activity's result is stored by Catalyst, not by your container.
+Two layers. `[WORKFLOW]` lines are the orchestrator: one Dapr workflow instance per review, each LangGraph super-step becoming one orchestration step. `[ACTIVITY]` lines are the work: each LangGraph node runs as a Dapr *activity*, the unit Catalyst checkpoints and signs. That is why the LLM call is safe to lose a process around: it lives inside the `classify` activity, and a completed activity's result is stored by Catalyst, not by your container.
 
 ```mermaid
 %%{init: {'flowchart': {'htmlLabels': true, 'wrappingWidth': 700, 'padding': 10, 'nodeSpacing': 45, 'rankSpacing': 55}}}%%
@@ -224,19 +183,19 @@ flowchart LR
     style X fill:#fff3cd,stroke:#c9a227
 ```
 
-Recall hook: **super-step = orchestration step, node = activity.** If you remember that one line, you can predict where every checkpoint in your graph falls without reading the runner source.
+Recall hook: **super-step = orchestration step, node = activity.** Remember that and you can predict where every checkpoint in your graph falls without reading the runner source.
 
-The Catalyst console closes the loop. Under Monitor → Workflows the graph appears as `dapr.langgraph.ReviewTriage.workflow` (the runner derives the workflow name from `name="review-triage"`), attributed to the app, with a total-executions counter and a status bar. After two triage calls: 10 executions, status bar fully green, zero failures, on the free tier from a laptop. Every one of those ten rows has a signed step history you can open, which is the audit answer from earlier in this post made concrete.
+In the Catalyst console the graph appears as `dapr.langgraph.ReviewTriage.workflow` (derived from `name="review-triage"`), with an executions counter and a status bar. After two triage calls: 10 executions, all green, on the free tier from a laptop, each with a signed step history you can open.
 
 ![Catalyst console: dapr.langgraph.ReviewTriage.workflow, 10 executions, all succeeded](docs/catalyst-workflows-console.png)
 
-### The crash test, verified
+### The crash test
 
-Durable execution is a claim until you kill the process. So: `CRASH_TEST_DELAY=10` makes the `route` step sleep, a triage is fired, and the process is hard-killed (`kill -9`, not Ctrl-C, which would let the request finish gracefully) while `route` is running:
+Durable execution is a claim until you kill the process. `CRASH_TEST_DELAY=10` makes the `route` step sleep, a triage is fired, and the process is hard-killed (`kill -9`, not Ctrl-C, which lets the request finish gracefully) while `route` is running:
 
 ```text
 [WORKFLOW] Step 0, pending_nodes=['classify']
-[ACTIVITY] Executing node 'classify' as Dapr activity      <- LLM call, completes, result stored + signed
+[ACTIVITY] Executing node 'classify' as Dapr activity      <- LLM call completes, result stored + signed
 [WORKFLOW] Step 1, pending_nodes=['route']
 [ACTIVITY] Executing node 'route' as Dapr activity
 [CRASH-TEST] route sleeping 10s: kill -9 the process now
@@ -251,7 +210,7 @@ INFO:     Application startup complete.
 [WORKFLOW] Step 2, pending_nodes=['__end__']            <- workflow completes
 ```
 
-Read what is not there. No `classify` activity: the LLM result was already stored, so it was never re-run and never re-billed. No `Step 0` / `Step 1` replay in the log either: the worker reconnected, Catalyst handed it the single orphaned `route` work item, and the orchestrator finished from history. The HTTP caller (the `curl`) got a dropped connection, because it was attached to the process that died; the work was not, because it was attached to Catalyst.
+Read what is not there: no `classify` activity, because its result was already stored, so no second LLM call and no second charge. The `curl` got a dropped connection because it was attached to the process that died; the work was attached to Catalyst.
 
 ```mermaid
 sequenceDiagram
@@ -273,21 +232,17 @@ sequenceDiagram
     CAT-->>APP2: workflow complete
 ```
 
-That is the whole pitch of durable execution in nine lines of log, and it cost one LLM call, not two.
-
-The console tells the same story with timestamps. The crashed instance (`graph-sample:s1-11ea7c91`, derived from the `thread_id` the app passed) shows status COMPLETED, start 11:35:51, end 11:37:21, execution time 1.51 minutes, against a few seconds for every sibling instance. Those ninety-odd seconds are the crash: the `route` activity sat scheduled in Catalyst while process #1 was dead and until process #2 reconnected. The event history is six lines: `ExecutionStarted` 11:35:51; `execute_node_activity` (classify) scheduled 11:35:51 and completed 11:35:53, 2.27 seconds, the LLM call; `execute_node_activity` (route) scheduled 11:35:54 and completed 11:37:21, 1.46 minutes, which is the crash plus the restart; `ExecutionCompleted` 11:37:21. One classify. One route, whose duration is the outage. No failure recorded.
+The console tells the same story with timestamps. The crashed instance (`graph-sample:s1-11ea7c91`) shows COMPLETED, execution time 1.51 minutes against a few seconds for every sibling. Its event history is six lines: `ExecutionStarted` 11:35:51; classify scheduled 11:35:51, completed 11:35:53 (2.27 s, the LLM call); route scheduled 11:35:54, completed 11:37:21 (1.46 min, the crash plus the restart); `ExecutionCompleted` 11:37:21. One classify. One route whose duration is the outage. No failure recorded.
 
 ![Catalyst instance detail: COMPLETED, 1.51m execution time spanning the crash, single classify activity](docs/catalyst-crash-instance.png)
 
-The console also taught a lesson worth passing on. The instance's Output panel shows the full graph state, including the review text, because the app passes the review text into the workflow. That is harmless with the bundled sample data, and it is exactly the case the "pass references, not payloads" advice in the adoption playbook is about: with real Google Places reviews, that text would rest in Catalyst's workflow history. The fix is small: pass `place_id` and `review_id` into the workflow and fetch the text inside the classify activity, using it locally and never returning it into graph state. The companion repo does this by default (`PASS_REVIEW_BY=reference`); after the change, the instance's Output panel shows `place_id`, `review_id`, the classification, and the owner, and no review text (verified on instance `graph-sample:s5-ca2e2248`). One nuance worth knowing when you read the console: the Input panel's `graph_config` lists `review` among the state channels, because the state schema declares the field; that is a column name, not a value, and in reference mode it is never populated. `PASS_REVIEW_BY=text` restores the state-carrying variant for demos with sample data. Same graph, same durability, one design decision about what crosses the boundary.
-
-Two smaller observations from the same run. The Dapr SDK now prefers `DAPR_GRPC_ENDPOINT=grpc-<project>.cloud.r1.diagrid.io:443?tls=true` over the `https://` form (it warns otherwise); the runbook uses the new form. And because `invoke()` blocks until each workflow completes, five reviews meant five sequential round trips through Catalyst; that is the right default for a demo, and `run_async()` inside an `asyncio.gather` is the one-line change when you want fan-out.
+The console also taught a lesson. That instance's Output panel showed the review text, because the app had passed it into the workflow state; harmless with sample data, and exactly the case the "pass references, not payloads" advice below is about. The fix is small and the repo now does it by default (`PASS_REVIEW_BY=reference`): pass `place_id` and `review_id` into the workflow, fetch the text inside the classify activity, never return it into state. Verified on the next run: Output shows identifiers, classification, and owner, and no review text. (The Input panel's schema still lists a `review` channel by name; that is a column, not a value.) Same graph, same durability, one deliberate decision about what crosses the boundary.
 
 ## Deploy: the part the vendor docs skip
 
-Diagrid's quickstarts run locally and their production guidance targets Kubernetes. Outbound-only architecture means you do not need a cluster: serverless container platforms scale to zero when no reviews are flowing. And if your platform team mandates GKE (Google Kubernetes Engine), EKS (Elastic Kubernetes Service), or an on-prem cluster, nothing is lost: the app is a plain OCI (Open Container Initiative) image with environment-variable config, so it deploys to any of them unchanged. Serverless is the low-friction default here, not a requirement.
+Outbound-only means you do not need a cluster: serverless container platforms scale to zero when no reviews are flowing. If your platform team mandates GKE, EKS, or an on-prem cluster, nothing is lost; the app is a plain OCI image with environment-variable config.
 
-### GCP Cloud Run
+**GCP Cloud Run:**
 
 ```bash
 gcloud run deploy review-triage \
@@ -298,11 +253,9 @@ gcloud run deploy review-triage \
   --set-secrets "DAPR_API_TOKEN=catalyst-token:latest,GOOGLE_MAPS_API_KEY=maps-key:latest,ANTHROPIC_API_KEY=llm-key:latest"
 ```
 
-Trigger on a schedule with one more command: `gcloud scheduler jobs create http nightly-triage --location us-central1 --schedule "0 6 * * *" --uri <service-url>/triage/<place-id> --oidc-service-account-email <sa>`. Cloud Run's `internal` ingress explicitly admits Cloud Scheduler, so the service never needs a public endpoint. If org policy forces VPC egress, use Direct VPC egress (Google's current recommended default; the older serverless VPC connector still works and is the better choice if you also need Cloud NAT) and add the three allowlist rows to the egress firewall. Nothing else changes.
+Trigger it with `gcloud scheduler jobs create http nightly-triage --location us-central1 --schedule "0 6 * * *" --uri <service-url>/triage/<place-id> --oidc-service-account-email <sa>`. Cloud Run's `internal` ingress explicitly admits Cloud Scheduler, so the service never needs a public endpoint; if org policy forces VPC egress, use Direct VPC egress and add the three allowlist rows.
 
-### Azure Container Apps
-
-`az containerapp up` has no `--secrets` flag, so secrets are a second step (an open, acknowledged gap in the CLI):
+**Azure Container Apps** (`az containerapp up` has no `--secrets` flag, so secrets are a second step):
 
 ```bash
 az containerapp up \
@@ -319,11 +272,11 @@ az containerapp update --name review-triage --resource-group rg-agents \
                  ANTHROPIC_API_KEY=secretref:llm-key
 ```
 
-Note the asymmetry with Cloud Run: an internal-ingress Container App is reachable only from inside its environment, so an internet-side scheduler cannot call it. Either front it with `--ingress external` plus Easy Auth / Entra ID, or trigger it from a caller inside the environment (a Container Apps job on a cron schedule is the tidiest answer). Same container image, same environment variables, zero code changes between clouds. Portability is configuration, not refactoring: that is the Dapr promise, and Catalyst removes the last excuse, which was running the control plane yourself.
+An internal-ingress Container App is not reachable by an internet-side scheduler; use external ingress plus Entra ID auth, or trigger from a Container Apps job inside the environment. Same image, same variables, zero code changes between clouds.
 
 ## What I deliberately left out
 
-The trivial-many 80%, named so the omissions are visibly intentional: multi-agent orchestration, vector memory / RAG (Retrieval-Augmented Generation), review-response drafting, human-in-the-loop approvals, conversation memory, streaming, evaluation harnesses, cost dashboards, prompt versioning, custom OpenTelemetry wiring. Each is an additive follow-up once the first agent is approved and boring in production. Adding them upfront multiplies your security-review surface for zero day-one value.
+Multi-agent orchestration, RAG, review-response drafting, human-in-the-loop approvals, conversation memory, streaming, evaluation harnesses, cost dashboards, prompt versioning, custom OpenTelemetry wiring. Each is an additive follow-up once the first agent is approved and boring in production. Adding them upfront multiplies your security-review surface for zero day-one value.
 
 ## Why Catalyst 2.0 specifically
 
@@ -335,31 +288,28 @@ The trivial-many 80%, named so the omissions are visibly intentional: multi-agen
 | A cluster + Dapr control plane | Serverless Dapr APIs; air-gapped self-hosted for sovereign needs |
 | A framework bet | Runs under LangGraph, LangChain Deep Agents, Google ADK, Microsoft Agent Framework, OpenAI Agents SDK, AWS Strands, CrewAI, PydanticAI, Claude Agent SDK, Spring AI, Dapr Agents |
 
-Closing line: every agent framework made it easy to build agents; the outbound-only pattern on Catalyst makes it possible to get one approved, running, and auditable without asking your enterprise for anything but port 443.
+Every agent framework made it easy to build agents; the outbound-only pattern on Catalyst makes it possible to get one approved, running, and auditable without asking your enterprise for anything but port 443.
 
-## The enterprise adoption playbook: what to line up, and how Catalyst answers each
+## The enterprise adoption playbook
 
-Vendors rarely write this section, and it is the one an architect gets asked about first. The outbound-only design converts many recurring infrastructure conversations into one well-scoped vendor conversation: one review instead of N tickets. Here is how to walk into that review prepared, and where Catalyst already has the answer.
+Vendors rarely write this section, and it is the one an architect gets asked about first. The outbound-only design converts many recurring infrastructure conversations into one well-scoped vendor conversation. Here is how to walk in prepared. (Long form, with sources, in the repo's FRICTIONS.md.)
 
-| What the review will ask | How to answer it with Catalyst |
+| What the review will ask | How to answer it |
 |---|---|
-| Vendor security posture. | Diagrid holds SOC 2 Type II (attained August 2024, continuously monitored) and enters a DPA by default under its terms. Request the SOC 2 report and subprocessor list under NDA at the start of the free-tier POC so the paperwork runs in parallel with the build. Where a specific certification (ISO 27001, FedRAMP) is a gate, ask Diagrid for their roadmap; the CNCF Dapr lineage and existing enterprise references (HSBC, Prudential, FICO, Zeiss, Uniphar) carry weight in that conversation. |
-| Licensing of the SDK. | Open-source Dapr is Apache-2.0. The `diagrid` SDK that wraps your LangGraph graph is Business Source License 1.1, which is production-free for small organizations, requires a commercial license for larger ones, and converts to Apache-2.0 on March 1, 2030. That is a clean, well-precedented model (the same one used by several CNCF-adjacent vendors). Have procurement confirm the SDK license rides with the Catalyst subscription, and note that the license question and the security questionnaire can be a single vendor package. |
-| Where does the data live? | Workflow history stores each step's inputs and outputs so the agent can resume and so the signed audit trail exists; this is the feature, not a side effect. Design for it: pass identifiers and short summaries through the workflow (this demo persists only the classification, never review text), and choose the hosting tier that matches the data class. Catalyst offers four: multi-tenant Cloud for POC, Dedicated and BYOC for private networking and residency, Self-Hosted and Air-Gapped for sovereign data. |
-| Region and private connectivity. | The shared cloud runs from AWS us-west-1 today, which is ideal for a POC. For production in a regulated environment, Dedicated regions can be placed in your subscription with Azure Private Link (shipped August 10, 2026), and the roadmap is moving fast: three control-plane releases in the first two weeks of August alone. Ask about AWS PrivateLink and GCP Private Service Connect timing during the POC. |
-| What if we must self-host? | Same application code, different hosting answer. Self-hosted Catalyst runs on a Kubernetes cluster you already operate, with an external PostgreSQL, installed by Helm; the platform team owns that, and your agent team never sees it. Treat it as the year-two, scale-out option once the outbound-only POC has proven the value, rather than the answer to a POC-stage objection. |
-| Vendor durability. | Diagrid was founded in 2021 by the creators of Dapr, is a CNCF maintainer, and is backed by a $24.2M Series A led by Norwest. Catalyst is built on open-source CNCF Dapr Workflows, so the exit path is self-hosting Dapr with the same application code, a stronger continuity answer than most agent-infrastructure companies can give. |
-| SDK maturity. | The `diagrid` package first shipped in March 2026 and is on 0.4.3 with a rapid release cadence. Pin versions, follow the `diagridio/python-ai` examples as source of truth, and expect the API you build on today to keep improving. Fast cadence in a young category is a strength: the framework list grew to eleven in one release. |
-| Durable execution is a new mental model. | Orchestrations replay; completed activities return stored results. Diagrid's docs and console (which shows each step's inputs and outputs) make this visible. Budget one team session on the model before the first incident and it becomes the reason your on-call is quiet. |
-| App identity and token lifecycle. | Apps authenticate with a per-app API token over TLS to Catalyst; rotate it through your cloud secret manager on your existing schedule. Diagrid's stack already uses SPIFFE identity and mTLS internally, per-org identity-provider federation for the console shipped in July 2026, and OIDC discovery per region in August, so the workload-identity story is clearly in flight. Ask about it in the POC and you will likely be describing your own requirement into the roadmap. |
+| Vendor security posture | SOC 2 Type II since August 2024, DPA by default. Request the report and subprocessor list under NDA at POC start so paperwork runs in parallel; ask for the ISO 27001 / FedRAMP roadmap if those are gates. |
+| SDK licensing | Dapr is Apache-2.0. The `diagrid` SDK is Business Source License 1.1 (commercial license for larger organizations, converts to Apache-2.0 March 1, 2030), a well-precedented model. Have procurement confirm it rides with the Catalyst subscription, in the same package as the security questionnaire. |
+| Where does the data live? | Workflow history stores each step's inputs and outputs so resume and the signed audit trail work. Design for it: pass identifiers and short summaries (this demo does, by default), and pick the tier for the data class: Cloud for POC, Dedicated/BYOC for private networking and residency, Self-Hosted/Air-Gapped for sovereign data. |
+| Region and private connectivity | Shared cloud runs from AWS us-west-1, ideal for a POC. Dedicated regions in your subscription with Azure Private Link shipped August 10, 2026; three control-plane releases in two weeks show the pace. Ask about AWS PrivateLink and GCP PSC timing. |
+| What if we must self-host? | Same application code. Self-hosted Catalyst runs on a Kubernetes cluster your platform team already operates, with external PostgreSQL, via Helm. Treat it as the year-two scale-out option, not the answer to a POC objection. |
+| Vendor durability | Founded 2021 by Dapr's creators, CNCF maintainer, $24.2M Series A (Norwest). Built on open-source Dapr Workflows, so the exit path is self-hosting Dapr with the same code. |
+| SDK maturity | First shipped March 2026, now 0.4.3, fast cadence (framework list grew to eleven in one release). Pin versions; use `diagridio/python-ai` examples as truth. |
+| New mental model | Orchestrations replay; completed activities return stored results. One team session before the first incident. |
+| App identity | Per-app API token over TLS; rotate via your secret manager. SPIFFE/mTLS internal, console IdP federation (July 2026) and per-region OIDC discovery (August) show workload identity in flight; ask during the POC. |
 
 ## Scope and caveats
 
-- Review API terms matter. Google Places API (New) returns up to 5 reviews per place, needs a billed GCP project (with per-SKU monthly free call allowances since March 2025; reviews are in the Enterprise + Atmosphere SKU), and its terms prohibit storing or caching review text: persist your classification output only. Yelp Fusion, the original plan for this post, is now a paid product (30-day trial, plans from $229/month, review excerpts on the $299/month Enhanced plan, 24-hour storage cap), which is why the demo uses Places. Use first-party feedback data in production anyway.
-- Catalyst 2.0 capabilities (durable + verifiable execution, framework list, air-gapped mode) are from Diagrid's July 2026 launch materials. The "up to 10x" performance figure is Catalyst relative to open-source Dapr, per Diagrid.
-- Code was verified against `diagrid` 0.4.3 by installing it and reading the source on August 16, 2026; the `diagridio/python-ai` repository (`examples/langgraph/`) is the source of truth for exact APIs. `diagrid-labs/dapr-agents-catalyst-samples` covers Dapr Agents.
-- Catalyst free tier at time of writing: 3 projects, 10 apps, 3 users, 512 MB per store, 100 requests/s per app, 100k requests/day per project. Generous for a POC; verify current limits before committing production volume.
-- Catalyst focuses on the state, pub/sub, service invocation, bindings, and workflow APIs (not Actors, Secrets, Configuration, or Distributed Lock), which is exactly the surface this design uses, so "same code on self-hosted Dapr" holds for it.
+- Google Places API (New): up to 5 reviews per place, billed GCP project, terms prohibit storing review text (this design persists only the classification and, by default, never passes text through the workflow). Yelp Fusion, the original plan, is now a paid product; use first-party data in production anyway.
+- Catalyst 2.0 capabilities are from Diagrid's July 2026 launch materials; the "up to 10x" figure is Catalyst relative to open-source Dapr, per Diagrid. Code verified against `diagrid` 0.4.3 by installing and reading the source; free-tier limits and pricing change, verify before production volume.
 
 ## References
 

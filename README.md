@@ -1,8 +1,8 @@
 # dapr-catalyst-friction-less
 
-A less-friction demo to catalyze your agents: a durable review-triage agent built with **LangGraph** and run on **Diagrid Catalyst 2.0**, packaged as one container that only makes outbound HTTPS calls.
+**A durable AI agent that clears enterprise security review with one container and outbound port 443.** LangGraph on Diagrid Catalyst 2.0, run for real on the free tier, including a `kill -9` mid-workflow: Catalyst redelivered exactly one activity, the LLM step was never re-run, and the instance finished COMPLETED.
 
-Companion to the blog post [The Minimum-Approval Enterprise Agent](dapr-catalyst-8020-agent-blog.md). Read [FRICTIONS.md](FRICTIONS.md) for the enterprise adoption playbook: what Catalyst removes, and how to line up the rest.
+Start here: **[The Minimum-Approval Enterprise Agent](dapr-catalyst-8020-agent-blog.md)** (the blog post, ~15 min read). Then [RUNBOOK.md](RUNBOOK.md) to run it yourself, and [FRICTIONS.md](FRICTIONS.md) for the enterprise adoption playbook.
 
 ## What it does
 
@@ -20,8 +20,8 @@ Use `place_id` = `sample` to run on the bundled `sample_reviews.json` with no Go
 | `Dockerfile` | `python:3.12-slim`, uvicorn on port 8080 |
 | `.env.example` | Every environment variable the app reads |
 | `RUNBOOK.md` | Step-by-step local run guide with prerequisites (Python 3.11+) and troubleshooting |
-| `dapr-catalyst-8020-agent-blog.md` | The blog post (long version, ~5,000 words) |
-| `dapr-catalyst-8020-agent-blog-tight.md` | The blog post, tightened for publication (~3,400 words body); same facts, same code, same diagrams |
+| `dapr-catalyst-8020-agent-blog.md` | The blog post |
+| `docs/` | Console screenshots referenced by the post, and the earlier long-form draft |
 | `FRICTIONS.md` | Plain-language enterprise adoption playbook: what Catalyst takes off your plate, and how to answer the rest |
 | `VERIFICATION-REPORT-2026-08-16.md` | Fact-check of every claim in the post, with sources |
 | `CONTEXT-dapr-catalyst-blog-chat.md` | Decision log and open to-dos |
