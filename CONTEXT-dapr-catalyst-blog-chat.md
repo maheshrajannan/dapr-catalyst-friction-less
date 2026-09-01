@@ -42,9 +42,9 @@ Every reference, claim, CLI flag, API path, and SDK call was verified against pr
 
 ## Open action items (pre-publish)
 
-1. ~~Run the demo once end to end and confirm `runner.invoke()` return shape~~ Done Aug 16 (see "First live run"). Crash test done. Remaining: save `crashTestLog.md` and the two console screenshots; optional Google Places key for a real place.
+1. ~~Run the demo once end to end and confirm `runner.invoke()` return shape~~ Done Aug 16 (see "First live run"). Crash test done Aug 16, replicated Aug 23 and Aug 26. ~~Save `crashTestLog.md` and the console screenshots~~ Done Aug 23 (`crashTestLog.md`; `docs/catalyst-workflows-console.png`, `docs/catalyst-crash-instance.png`, `docs/catalyst-crash-resume.png`, `docs/catalyst-reference-mode-input.png`). Remaining: optional Google Places key for a real place.
 2. Confirm with Diagrid whether a Catalyst subscription includes a commercial license for the BSL 1.1 `diagrid` SDK; this decides whether an enterprise can use it in production at all.
-3. ~~Create `main.py`, `requirements.txt`, `Dockerfile`~~ Done Aug 16, 2026 (plus `sample_reviews.json`, `.env.example`, `.dockerignore`, `README.md`, `FRICTIONS.md`). Repo linked from the post. Still to do: run it once against a real Catalyst project.
+3. ~~Create `main.py`, `requirements.txt`, `Dockerfile`~~ Done Aug 16, 2026 (plus `sample_reviews.json`, `.env.example`, `.dockerignore`, `README.md`, `FRICTIONS.md`). Repo linked from the post. ~~Still to do: run it once against a real Catalyst project~~ Done Aug 16 on the Catalyst free tier; 20+ executions since, all COMPLETED.
 4. Optional: add one-line callback to the Feedback Intelligence series in the intro.
 5. Re-check `docs.diagrid.io/develop/agents/langgraph/langgraph-durable-workflow/` prose (JS-rendered, could not be fetched during verification) for any invocation pattern that differs from the repo examples.
 
@@ -76,7 +76,7 @@ Lesson from the Output panel: workflow state carried the review text, so Catalys
 1. ~~Tightening pass~~ **Done Aug 16 as a separate file: `dapr-catalyst-8020-agent-blog-tight.md`** (3,950 words incl. 520 of references, i.e. ~3,430 body, down from ~5,000). Cuts only, no new claims: "Request flow" section removed (protocol note folded into security review; crash-test sequence diagram carries the flow), runner-internals paragraph replaced by one pointer to RUNBOOK, "First run" + "Crash test" merged under one H2 "Verified: what actually happened when I ran it", Azure deploy trimmed, playbook right-hand cells shortened with pointer to FRICTIONS.md, Scope and caveats cut to two bullets. Aug 17: tight version made canonical as `dapr-catalyst-8020-agent-blog.md`; long draft moved to `docs/dapr-catalyst-8020-agent-blog-long.md`; `-tight.md` to be deleted. README rewritten to land the crash-test result in the first paragraph, since the repo root link had already been shared externally on Aug 17.
 2. ~~Up-front "what you will see" paragraph~~ Done in the tight version (second paragraph, with 2.27s / 1.46min / COMPLETED).
 3. Closing paragraph in the author's own voice (who he is, invitation to compare notes).
-4. Save `crashTestLog.md`, `docs/catalyst-workflows-console.png`, `docs/catalyst-crash-resume.png`, `docs/catalyst-crash-instance.png`, `docs/catalyst-reference-mode.png`.
+4. ~~Save `crashTestLog.md`, `docs/catalyst-workflows-console.png`, `docs/catalyst-crash-resume.png`, `docs/catalyst-crash-instance.png`, `docs/catalyst-reference-mode-input.png`~~ Done Aug 23 (note the reference-mode screenshot is named `-input.png`).
 
 ## Crash-test replications (August 23-26, 2026)
 
